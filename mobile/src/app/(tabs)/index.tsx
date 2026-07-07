@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -10,7 +10,8 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
-    Alert
+    Alert,
+    ActivityIndicator
 } from 'react-native';
 import { Colors } from '@/constants/theme';
 import * as Haptics from 'expo-haptics';
@@ -21,11 +22,13 @@ import {
     User, 
     RefreshCw, 
     Heart, 
-    Check, 
     Activity, 
-    Info 
+    Info,
+    Trash2,
+    History
 } from 'lucide-react-native';
 import { logError } from '@/logging/logger';
+import { greetingService, GreetingRecord } from '@/services/greeting.service';
 
 // Friendly predefined languages for the greeting
 const LANGUAGES = [
@@ -60,7 +63,44 @@ export default function HomeScreen() {
     const [selectedLang, setSelectedLang] = useState(LANGUAGES[0]);
     const [selectedEmoji, setSelectedEmoji] = useState(EMOJIS[0]);
     const [vibeIndex, setVibeIndex] = useState(0);
-    const [greetCount, setVibeCount] = useState(1);
+    
+    // Backend synchronized states
+    const [greetingsList, setGreetingsList] = useState<GreetingRecord[]>([]);
+    const [totalCount, setTotalCount] = useState(0);
+    const [loading, setLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
+
+    // Load greeting history on mount
+    useEffect(() => {
+        loadGreetingHistory();
+    }, []);
+
+    const loadGreetingHistory = async () => {
+        setLoading(true);
+        try {
+            const data = await greetingService.getGreetings();
+            setGreetingsList(data.greetings ?? []);
+            setTotalCount(data.totalCount ?? 0);
+            
+            // Set the primary main greeting text to the most recent greeted name if exists
+            if (data.greetings && data.greetings.length > 0) {
+                const latest = data.greetings[0];
+                setSavedName(latest.name);
+                const matchedLang = LANGUAGES.find(l => l.label === latest.language);
+                if (matchedLang) {
+                    setSelectedLang(matchedLang);
+                }
+                if (EMOJIS.includes(latest.emoji)) {
+                    setSelectedEmoji(latest.emoji);
+                }
+            }
+        } catch (error: any) {
+            logError(error, 'load-greetings-failure');
+            Alert.alert('Unable to load history', error?.message ?? 'Failed to connect to the greeting service.');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Trigger haptic feedback safely
     const triggerHaptic = async (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
@@ -72,11 +112,67 @@ export default function HomeScreen() {
     };
 
     // Handle greet button press
-    const handleGreet = () => {
-        triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
+    const handleGreet = async () => {
+        await triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
         const trimmedName = name.trim();
-        setSavedName(trimmedName || 'World');
-        setVibeCount(prev => prev + 1);
+        const displayName = trimmedName || 'World';
+        
+        setActionLoading(true);
+        try {
+            // Save to database via service layer
+            await greetingService.createGreeting({
+                name: displayName,
+                language: selectedLang.label,
+                emoji: selectedEmoji
+            });
+            
+            // Refresh counts and history list from server
+            const updated = await greetingService.getGreetings();
+            setGreetingsList(updated.greetings ?? []);
+            setTotalCount(updated.totalCount ?? 0);
+            
+            // Update local display immediately
+            setSavedName(displayName);
+            setName('');
+        } catch (error: any) {
+            logError(error, 'create-greeting-failure');
+            Alert.alert('Failed to greet', error?.message ?? 'Could not register greeting on server.');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    // Handle clear history
+    const handleClearHistory = async () => {
+        await triggerHaptic(Haptics.ImpactFeedbackStyle.Heavy);
+        
+        Alert.alert(
+            'Clear History',
+            'Are you sure you want to clear your greeting history? This action is reversible but will reset your stats.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Clear All',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setActionLoading(true);
+                        try {
+                            await greetingService.clearGreetings();
+                            setGreetingsList([]);
+                            setTotalCount(0);
+                            setSavedName('World');
+                            setSelectedLang(LANGUAGES[0]);
+                            setSelectedEmoji(EMOJIS[0]);
+                        } catch (error: any) {
+                            logError(error, 'clear-greetings-failure');
+                            Alert.alert('Error', error?.message ?? 'Could not clear history.');
+                        } finally {
+                            setActionLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     // Cycle through quotes/vibes
@@ -137,7 +233,7 @@ export default function HomeScreen() {
                             <View style={[styles.badge, { backgroundColor: colors.secondary }]}>
                                 <Activity size={14} color={colors.primary} style={styles.badgeIcon} />
                                 <Text style={[styles.badgeText, { color: colors.foreground }]}>
-                                    Greetings: {greetCount}
+                                    Total: {totalCount}
                                 </Text>
                             </View>
                             <View style={[styles.badge, { backgroundColor: colors.secondary }]}>
@@ -177,11 +273,18 @@ export default function HomeScreen() {
                             style={[styles.primaryButton, { backgroundColor: colors.primary }]}
                             onPress={handleGreet}
                             activeOpacity={0.8}
+                            disabled={actionLoading}
                         >
-                            <Smile size={18} color={colors.primaryForeground} style={styles.buttonIcon} />
-                            <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
-                                Greet Me!
-                            </Text>
+                            {actionLoading ? (
+                                <ActivityIndicator size="small" color={colors.primaryForeground} />
+                            ) : (
+                                <>
+                                    <Smile size={18} color={colors.primaryForeground} style={styles.buttonIcon} />
+                                    <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
+                                        Greet Me!
+                                    </Text>
+                                </>
+                            )}
                         </TouchableOpacity>
 
                         {/* Language Selector chips */}
@@ -244,6 +347,59 @@ export default function HomeScreen() {
                         </View>
                     </View>
 
+                    {/* Recent Greetings History List */}
+                    <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <View style={styles.sectionHeader}>
+                            <View style={styles.row}>
+                                <History size={18} color={colors.primary} style={styles.headerIcon} />
+                                <Text style={[styles.sectionTitle, { color: colors.foreground, marginBottom: 0 }]}>
+                                    Recent Greetings
+                                </Text>
+                            </View>
+                            {greetingsList.length > 0 && (
+                                <TouchableOpacity 
+                                    onPress={handleClearHistory}
+                                    disabled={actionLoading}
+                                >
+                                    <Trash2 size={16} color={colors.destructive} />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        {loading ? (
+                            <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+                        ) : greetingsList.length === 0 ? (
+                            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+                                No recent greetings. Be the first to say hello!
+                            </Text>
+                        ) : (
+                            <View style={styles.historyList}>
+                                {greetingsList.slice(0, 5).map((item, index) => (
+                                    <View 
+                                        key={item.id} 
+                                        style={[
+                                            styles.historyItem, 
+                                            { 
+                                                borderColor: colors.border,
+                                                borderBottomWidth: index === greetingsList.length - 1 ? 0 : 1 
+                                            }
+                                        ]}
+                                    >
+                                        <Text style={styles.historyEmoji}>{item.emoji}</Text>
+                                        <View style={styles.historyTextContainer}>
+                                            <Text style={[styles.historyName, { color: colors.foreground }]}>
+                                                {item.name}
+                                            </Text>
+                                            <Text style={[styles.historyMeta, { color: colors.mutedForeground }]}>
+                                                {item.language} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+
                     {/* Vibe / Quote Card */}
                     <View style={[styles.vibeCard, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
                         <View style={styles.vibeHeader}>
@@ -271,7 +427,7 @@ export default function HomeScreen() {
                     <View style={styles.footer}>
                         <Info size={14} color={colors.mutedForeground} style={styles.footerIcon} />
                         <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
-                            Created with 💖 as a single-page interactive mobile app.
+                            Connected securely to the Hono backend server.
                         </Text>
                     </View>
 
@@ -377,6 +533,48 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 16,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    headerIcon: {
+        marginRight: 8,
+    },
+    emptyText: {
+        fontSize: 14,
+        textAlign: 'center',
+        marginVertical: 12,
+        fontStyle: 'italic',
+    },
+    historyList: {
+        marginTop: 4,
+    },
+    historyItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+    },
+    historyEmoji: {
+        fontSize: 24,
+        marginRight: 12,
+    },
+    historyTextContainer: {
+        flex: 1,
+    },
+    historyName: {
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    historyMeta: {
+        fontSize: 12,
+        marginTop: 2,
     },
     inputLabel: {
         fontSize: 12,

@@ -55,3 +55,13 @@ model Otp {
   @@index([expiresAt])
   @@index([identifier, type, verified])
 }
+
+model Greeting {
+  id        String   @id @default(uuid())
+  name      String
+  language  String
+  emoji     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+}

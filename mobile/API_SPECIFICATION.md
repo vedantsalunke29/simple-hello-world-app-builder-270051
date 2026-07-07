@@ -1,11 +1,63 @@
 # API Specification
 
-This application is a simple, premium, self-contained one-page hello app with zero external API or backend server dependencies.
-
-## Overview
-- **Authentication**: Unauthenticated (no user accounts or login required)
-- **Database**: None (state is managed purely in-memory via React state)
-- **External Integrations**: None
+This application provides a simple backend persistent store to track, count, and display custom greetings across app sessions.
 
 ## Endpoints
-There are no API endpoints required for this self-contained application.
+
+### 1. Get Greetings List
+Retrieve a list of the 10 most recent greeting events along with the total greeting count.
+- **URL**: `/greetings`
+- **Method**: `GET`
+- **Authentication**: Unauthenticated
+- **Response Format**:
+  ```json
+  {
+    "greetings": [
+      {
+        "id": "uuid-string",
+        "name": "Alex",
+        "language": "English",
+        "emoji": "👋",
+        "createdAt": "2026-07-07T12:00:00.000Z"
+      }
+    ],
+    "totalCount": 1
+  }
+  ```
+
+### 2. Save New Greeting
+Record a new greeting event.
+- **URL**: `/greetings`
+- **Method**: `POST`
+- **Authentication**: Unauthenticated
+- **Request Body**:
+  ```json
+  {
+    "name": "Alex",
+    "language": "English",
+    "emoji": "👋"
+  }
+  ```
+- **Response Format**:
+  ```json
+  {
+    "id": "uuid-string",
+    "name": "Alex",
+    "language": "English",
+    "emoji": "👋",
+    "createdAt": "2026-07-07T12:00:00.000Z"
+  }
+  ```
+
+### 3. Clear All Greetings
+Soft delete all current greeting records.
+- **URL**: `/greetings`
+- **Method**: `DELETE`
+- **Authentication**: Unauthenticated
+- **Response Format**:
+  ```json
+  {
+    "success": true,
+    "message": "All greeting records soft-deleted successfully"
+  }
+  ```

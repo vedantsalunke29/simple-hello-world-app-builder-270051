@@ -3,6 +3,7 @@ import ApiError from './utils/ApiError.ts';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
+import greetingRoutes from './routes/greeting.routes.ts';
 
 // import authRoutes from './routes/auth.routes.ts';
 
@@ -30,6 +31,9 @@ app.get('/version.json', c => {
 app.get('/health', c => {
     return c.text('OK');
 });
+
+// Mount greetings routes
+app.route('/greetings', greetingRoutes);
 
 // Mount auth routes only if auth needs to be implemented
 // app.route('/auth', authRoutes);
