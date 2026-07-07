@@ -1,0 +1,12 @@
+node_modules
+.git
+.gitignore
+.expo
+dist
+web-build
+ios
+android
+*.tsbuildinfo
+.env*.local
+.DS_Store
+.vscode

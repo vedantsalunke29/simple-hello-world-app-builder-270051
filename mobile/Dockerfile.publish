@@ -1,0 +1,30 @@
+FROM node:20-alpine
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# The image has no git binary and no .git repo, so tell EAS to skip VCS and archive the
+# working directory directly. Without this, `eas build` aborts with "git command not found".
+ENV EAS_NO_VCS=1
+
+# pnpm via corepack (pinned to the version in package.json's packageManager field),
+# plus eas-cli so the entrypoint can invoke `eas` directly.
+RUN corepack enable && corepack install --global pnpm@10.27.0
+RUN npm install --global eas-cli
+
+WORKDIR /app/project
+
+# Install dependencies first so this layer is cached when only source changes.
+# patches/ and pnpm-workspace.yaml are needed because install runs patch-package (postinstall)
+# and applies the pnpm patchedDependencies entry.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
+RUN pnpm install --frozen-lockfile
+
+# Copy the rest of the mobile project (app.config.ts, eas.json, src, ...).
+COPY . .
+
+COPY entrypoint.publish.sh /entrypoint.publish.sh
+RUN chmod +x /entrypoint.publish.sh
+
+ENTRYPOINT ["/entrypoint.publish.sh"]
